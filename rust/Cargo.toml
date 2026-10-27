@@ -1,0 +1,8 @@
+[package]
+name = "loadpath"
+version = "0.1.0"
+edition = "2021"
+description = "Critical-path analysis over a weighted task DAG"
+license = "MIT"
+
+[dependencies]

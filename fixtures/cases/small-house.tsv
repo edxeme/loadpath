@@ -1,0 +1,14 @@
+# Construction-inspired toy schedule.
+task	start	0
+task	excavate	4
+task	foundation	6
+task	walls	8
+task	roof	3
+task	finish	5
+edge	start	excavate
+edge	excavate	foundation
+edge	foundation	walls
+edge	walls	roof
+edge	roof	finish
+expect_path	start,excavate,foundation,walls,roof,finish
+expect_makespan	26

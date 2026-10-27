@@ -1,0 +1,11 @@
+# Two independent branches of different weight.
+task	a	2
+task	short	3
+task	long	7
+task	z	1
+edge	a	short
+edge	a	long
+edge	short	z
+edge	long	z
+expect_path	a,long,z
+expect_makespan	10

@@ -42,9 +42,10 @@ public final class Cpm {
     /** Earliest finish time per task, in topological order. */
     public Map<String, Double> earliestFinish() {
         Map<String, Double> finish = new LinkedHashMap<>();
+        Map<String, Integer> pending = new HashMap<>(indegree);
         Deque<String> ready = new ArrayDeque<>();
-        for (String name : indegree.keySet()) {
-            if (indegree.get(name) == 0) {
+        for (String name : pending.keySet()) {
+            if (pending.get(name) == 0) {
                 ready.add(name);
             }
         }
@@ -60,7 +61,7 @@ public final class Cpm {
             }
             finish.put(current, start + tasks.get(current).duration());
             for (String next : successors.get(current)) {
-                if (indegree.merge(next, -1, Integer::sum) == 0) {
+                if (pending.merge(next, -1, Integer::sum) == 0) {
                     ready.add(next);
                 }
             }

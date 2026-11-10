@@ -42,6 +42,24 @@ pub struct Edge {
     pub after: String,
 }
 
+/// Start/finish bounds and total float for one task.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskTimes {
+    pub name: String,
+    pub early_start: f64,
+    pub early_finish: f64,
+    pub late_start: f64,
+    pub late_finish: f64,
+    pub total_float: f64,
+}
+
+impl TaskTimes {
+    /// A task is critical when its total float is zero.
+    pub fn is_critical(&self) -> bool {
+        self.total_float <= 1e-9
+    }
+}
+
 /// Critical-path planner over a weighted task DAG.
 #[derive(Debug, Default, Clone)]
 pub struct Cpm {
@@ -163,6 +181,82 @@ impl Cpm {
         Ok(path)
     }
 
+    /// Full schedule in insertion order, from the forward and backward passes.
+    pub fn schedule(&self) -> Result<Vec<TaskTimes>, CpmError> {
+        let finish = self.earliest_finish()?;
+        let makespan = finish.values().copied().fold(0.0_f64, f64::max);
+
+        // Backward pass: reverse Kahn over out-degree so every successor of a
+        // task carries a late start before the task itself is processed.
+        let mut outdegree: HashMap<&str, usize> = HashMap::new();
+        for name in &self.order {
+            outdegree.insert(name.as_str(), 0);
+        }
+        for edge in &self.edges {
+            *outdegree.get_mut(edge.before.as_str()).unwrap() += 1;
+        }
+
+        let mut late_start: HashMap<&str, f64> = HashMap::new();
+        let mut ready: Vec<&str> = self
+            .order
+            .iter()
+            .map(String::as_str)
+            .filter(|name| outdegree[name] == 0)
+            .collect();
+        while let Some(current) = ready.pop() {
+            let successors: Vec<&Edge> = self
+                .edges
+                .iter()
+                .filter(|edge| edge.before == current)
+                .collect();
+            let late_finish = if successors.is_empty() {
+                makespan
+            } else {
+                successors
+                    .iter()
+                    .filter_map(|edge| late_start.get(edge.after.as_str()))
+                    .copied()
+                    .fold(f64::INFINITY, f64::min)
+            };
+            late_start.insert(current, late_finish - self.durations[current]);
+            for edge in &self.edges {
+                if edge.after == current {
+                    let entry = outdegree.get_mut(edge.before.as_str()).unwrap();
+                    *entry -= 1;
+                    if *entry == 0 {
+                        ready.push(edge.before.as_str());
+                    }
+                }
+            }
+        }
+
+        let mut rows = Vec::new();
+        for name in &self.order {
+            let early_finish = finish[name];
+            let early_start = early_finish - self.durations[name];
+            let ls = late_start[name.as_str()];
+            rows.push(TaskTimes {
+                name: name.clone(),
+                early_start,
+                early_finish,
+                late_start: ls,
+                late_finish: ls + self.durations[name],
+                total_float: ls - early_start,
+            });
+        }
+        Ok(rows)
+    }
+
+    /// Names of zero-float tasks, in insertion order.
+    pub fn critical_tasks(&self) -> Result<Vec<String>, CpmError> {
+        Ok(self
+            .schedule()?
+            .into_iter()
+            .filter(|row| row.is_critical())
+            .map(|row| row.name)
+            .collect())
+    }
+
     /// The predecessor with the largest earliest finish, if any.
     fn dominating_predecessor<'a>(
         &'a self,
@@ -226,6 +320,34 @@ mod tests {
         cpm.add_task("a", 1.0).unwrap();
         let err = cpm.add_dependency("a", "ghost").unwrap_err();
         assert_eq!(err, CpmError::UnknownTask("ghost".into()));
+    }
+
+    #[test]
+    fn backward_pass_assigns_slack_to_the_light_branch() {
+        let cpm = sample();
+        let schedule = cpm.schedule().unwrap();
+        let by_name: HashMap<&str, &TaskTimes> = schedule
+            .iter()
+            .map(|row| (row.name.as_str(), row))
+            .collect();
+        assert!((by_name["short"].total_float - 4.0).abs() < 1e-9);
+        assert!((by_name["short"].late_finish - 9.0).abs() < 1e-9);
+        assert!(by_name["long"].total_float.abs() < 1e-9);
+        assert!((by_name["a"].late_finish - 2.0).abs() < 1e-9);
+        assert!(by_name["z"].total_float.abs() < 1e-9);
+        assert_eq!(cpm.critical_tasks().unwrap(), vec!["a", "long", "z"]);
+    }
+
+    #[test]
+    fn chain_schedule_is_fully_critical() {
+        let mut cpm = Cpm::new();
+        cpm.add_task("only", 5.0).unwrap();
+        cpm.add_task("then", 3.0).unwrap();
+        cpm.add_dependency("only", "then").unwrap();
+        for row in cpm.schedule().unwrap() {
+            assert!(row.total_float.abs() < 1e-9, "{}", row.name);
+        }
+        assert!((cpm.makespan().unwrap() - 8.0).abs() < 1e-9);
     }
 
     #[test]

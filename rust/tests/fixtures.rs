@@ -1,6 +1,7 @@
 //! Validates the Rust port against the shared TSV vectors.
 
 use loadpath::Cpm;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn fixtures_dir() -> PathBuf {
@@ -25,6 +26,7 @@ fn shared_fixtures_stay_consistent() {
         let mut cpm = Cpm::new();
         let mut expected_path = String::new();
         let mut expected_makespan = 0.0;
+        let mut expected_floats: HashMap<String, f64> = HashMap::new();
 
         for line in text
             .lines()
@@ -40,8 +42,23 @@ fn shared_fixtures_stay_consistent() {
                 }
                 "expect_path" => expected_path = parts[1].to_string(),
                 "expect_makespan" => expected_makespan = parts[1].parse().unwrap(),
+                "expect_float" => {
+                    expected_floats.insert(parts[1].to_string(), parts[2].parse().unwrap());
+                }
                 other => panic!("bad fixture line in {:?}: {other}", file),
             }
+        }
+
+        let schedule = cpm.schedule().unwrap();
+        let floats: HashMap<&str, f64> = schedule
+            .iter()
+            .map(|row| (row.name.as_str(), row.total_float))
+            .collect();
+        for (name, value) in &expected_floats {
+            assert!(
+                (floats[name.as_str()] - value).abs() < 1e-9,
+                "{file:?}: {name}"
+            );
         }
 
         assert!(

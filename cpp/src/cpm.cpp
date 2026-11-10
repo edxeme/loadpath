@@ -106,6 +106,70 @@ std::vector<std::string> Cpm::critical_path() const {
     return path;
 }
 
+std::vector<TaskTimes> Cpm::schedule() const {
+    const std::unordered_map<std::string, double> finish = earliest_finish();
+    double makespan = 0.0;
+    for (const auto& [name, value] : finish) {
+        makespan = std::max(makespan, value);
+    }
+
+    // Backward pass: reverse Kahn over out-degree so every successor of a
+    // task carries a late start before the task itself is processed.
+    std::unordered_map<std::string, int> outdegree;
+    for (const Task& task : tasks_) {
+        outdegree.emplace(task.name, 0);
+    }
+    for (const Edge& edge : edges_) {
+        outdegree[edge.before] += 1;
+    }
+
+    std::unordered_map<std::string, double> late_start;
+    std::deque<std::string> ready;
+    for (const Task& task : tasks_) {
+        if (outdegree[task.name] == 0) {
+            ready.push_back(task.name);
+        }
+    }
+    while (!ready.empty()) {
+        const std::string current = ready.front();
+        ready.pop_front();
+
+        double late_finish = makespan;
+        for (const Edge& edge : edges_) {
+            if (edge.before == current) {
+                late_finish = std::min(late_finish, late_start.at(edge.after));
+            }
+        }
+        late_start[current] = late_finish - tasks_.at(index_.at(current)).duration;
+
+        for (const Edge& edge : edges_) {
+            if (edge.after == current && --outdegree[edge.before] == 0) {
+                ready.push_back(edge.before);
+            }
+        }
+    }
+
+    std::vector<TaskTimes> rows;
+    for (const Task& task : tasks_) {
+        const double early_finish = finish.at(task.name);
+        const double early_start = early_finish - task.duration;
+        const double ls = late_start.at(task.name);
+        rows.push_back(TaskTimes{task.name, early_start, early_finish,
+                                 ls, ls + task.duration, ls - early_start});
+    }
+    return rows;
+}
+
+std::vector<std::string> Cpm::critical_tasks() const {
+    std::vector<std::string> names;
+    for (const TaskTimes& row : schedule()) {
+        if (row.is_critical()) {
+            names.push_back(row.name);
+        }
+    }
+    return names;
+}
+
 const std::string* Cpm::dominating_predecessor(
     const std::string& name,
     const std::unordered_map<std::string, double>& finish) const {

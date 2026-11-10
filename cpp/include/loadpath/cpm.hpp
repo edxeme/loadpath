@@ -34,6 +34,19 @@ public:
         : std::runtime_error("unknown task: " + name) {}
 };
 
+/// Start/finish bounds and total float for one task.
+struct TaskTimes {
+    std::string name;
+    double early_start;
+    double early_finish;
+    double late_start;
+    double late_finish;
+    double total_float;
+
+    /// A task is critical when its total float is zero.
+    [[nodiscard]] bool is_critical() const { return total_float <= 1e-9; }
+};
+
 /// Critical-path analysis over a weighted task DAG.
 ///
 /// Insertion order of tasks and edges is preserved so results are stable
@@ -51,6 +64,12 @@ public:
 
     /// The critical path as task names from start to end.
     [[nodiscard]] std::vector<std::string> critical_path() const;
+
+    /// Full schedule in insertion order, from the forward and backward passes.
+    [[nodiscard]] std::vector<TaskTimes> schedule() const;
+
+    /// Names of zero-float tasks, in insertion order.
+    [[nodiscard]] std::vector<std::string> critical_tasks() const;
 
     [[nodiscard]] std::size_t task_count() const { return tasks_.size(); }
 

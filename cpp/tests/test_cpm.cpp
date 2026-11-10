@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "test_kit.hpp"
@@ -53,6 +54,7 @@ void check_shared_fixtures() {
             Cpm cpm;
             std::string expected_path;
             double expected_makespan = 0.0;
+            std::unordered_map<std::string, double> expected_floats;
             std::string line;
             while (std::getline(file, line)) {
                 if (line.empty() || line[0] == '#') {
@@ -67,10 +69,19 @@ void check_shared_fixtures() {
                     expected_path = parts[1];
                 } else if (parts[0] == "expect_makespan") {
                     expected_makespan = std::stod(parts[1]);
+                } else if (parts[0] == "expect_float") {
+                    expected_floats[parts[1]] = std::stod(parts[2]);
                 }
             }
             CHECK_NEAR(cpm.makespan(), expected_makespan, 1e-9);
             CHECK(join(cpm.critical_path(), ',') == expected_path);
+            std::unordered_map<std::string, double> floats;
+            for (const loadpath::TaskTimes& row : cpm.schedule()) {
+                floats[row.name] = row.total_float;
+            }
+            for (const auto& [name, value] : expected_floats) {
+                CHECK_NEAR(floats.at(name), value, 1e-9);
+            }
         }
         return;
     }
@@ -136,6 +147,41 @@ TEST(cycle_is_rejected) {
         .add_dependency("c", "a");
 
     CHECK(throws_any([&] { (void)cpm.earliest_finish(); }));
+}
+
+TEST(backward_pass_assigns_slack_to_the_light_branch) {
+    Cpm cpm;
+    cpm.add_task("a", 2)
+        .add_task("short", 3)
+        .add_task("long", 7)
+        .add_task("z", 1)
+        .add_dependency("a", "short")
+        .add_dependency("a", "long")
+        .add_dependency("short", "z")
+        .add_dependency("long", "z");
+
+    std::unordered_map<std::string, loadpath::TaskTimes> by_name;
+    for (const loadpath::TaskTimes& row : cpm.schedule()) {
+        by_name[row.name] = row;
+    }
+    CHECK_NEAR(by_name.at("short").total_float, 4.0, 1e-9);
+    CHECK_NEAR(by_name.at("short").late_finish, 9.0, 1e-9);
+    CHECK_NEAR(by_name.at("long").total_float, 0.0, 1e-9);
+    CHECK_NEAR(by_name.at("a").late_finish, 2.0, 1e-9);
+    CHECK_NEAR(by_name.at("z").total_float, 0.0, 1e-9);
+    CHECK(join(cpm.critical_tasks(), ',') == "a,long,z");
+}
+
+TEST(chain_schedule_is_fully_critical) {
+    Cpm cpm;
+    cpm.add_task("only", 5)
+        .add_task("then", 3)
+        .add_dependency("only", "then");
+
+    for (const loadpath::TaskTimes& row : cpm.schedule()) {
+        CHECK_NEAR(row.total_float, 0.0, 1e-9);
+    }
+    CHECK_NEAR(cpm.makespan(), 8.0, 1e-9);
 }
 
 TEST(analysis_is_repeatable) {

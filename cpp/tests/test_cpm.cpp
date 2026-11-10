@@ -44,7 +44,7 @@ void check_shared_fixtures() {
             continue;
         }
         probe.close();
-        const char* names[] = {"parallel-branches.tsv", "small-house.tsv"};
+        const char* names[] = {"diamond-slack.tsv", "parallel-branches.tsv", "small-house.tsv"};
         for (const char* name : names) {
             std::ifstream file(dir + "/" + name);
             CHECK(file.good());

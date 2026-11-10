@@ -1,0 +1,12 @@
+# Diamond with slack on the light branch.
+task	s	1
+task	heavy	9
+task	light	2
+task	end	1
+edge	s	heavy
+edge	s	light
+edge	heavy	end
+edge	light	end
+expect_path	s,heavy,end
+expect_makespan	11
+expect_float	light	7

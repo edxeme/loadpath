@@ -17,6 +17,9 @@ easy, hard, and loud.
 2. `earliest_finish(task) = max(finish of predecessors) + duration`.
 3. The critical path is reconstructed backwards through the dominating
    predecessor of the last task to finish.
+4. A reverse-Kahn backward pass yields `late_start`/`late_finish` and the
+   total float per task; `schedule()` reports all of it, `critical_tasks()`
+   collects the zero-float set.
 
 Cycles are rejected. Results are stable: task and edge insertion order breaks
 ties identically in every port.
@@ -62,12 +65,12 @@ Java topological walk and a working-directory assumption in the C++ runner.
   harness instead of a framework — for this size, the harness is the honest
   choice.
 
-~980 lines across the three ports, no third-party dependencies beyond the
+~1370 lines across the three ports, no third-party dependencies beyond the
 Java test scope.
 
 ## Roadmap
 
-- [ ] Late start/finish and total float per task
+- [x] Late start/finish and total float per task
 - [ ] Multiple critical paths
 - [ ] Mermaid export of the schedule graph
 

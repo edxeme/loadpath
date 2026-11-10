@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -63,6 +64,43 @@ class CpmTest {
     }
 
     @Test
+    void backwardPassAssignsSlackToTheLightBranch() {
+        Cpm cpm = new Cpm()
+                .addTask(new Task("a", 2))
+                .addTask(new Task("short", 3))
+                .addTask(new Task("long", 7))
+                .addTask(new Task("z", 1))
+                .addDependency(new Edge("a", "short"))
+                .addDependency(new Edge("a", "long"))
+                .addDependency(new Edge("short", "z"))
+                .addDependency(new Edge("long", "z"));
+
+        Map<String, TaskTimes> byName = new LinkedHashMap<>();
+        for (TaskTimes row : cpm.schedule()) {
+            byName.put(row.name(), row);
+        }
+        assertEquals(4.0, byName.get("short").totalFloat(), 1e-9);
+        assertEquals(9.0, byName.get("short").lateFinish(), 1e-9);
+        assertEquals(0.0, byName.get("long").totalFloat(), 1e-9);
+        assertEquals(2.0, byName.get("a").lateFinish(), 1e-9);
+        assertEquals(0.0, byName.get("z").totalFloat(), 1e-9);
+        assertEquals(List.of("a", "long", "z"), cpm.criticalTasks());
+    }
+
+    @Test
+    void chainScheduleIsFullyCritical() {
+        Cpm cpm = new Cpm()
+                .addTask(new Task("only", 5))
+                .addTask(new Task("then", 3))
+                .addDependency(new Edge("only", "then"));
+
+        for (TaskTimes row : cpm.schedule()) {
+            assertEquals(0.0, row.totalFloat(), 1e-9, row.name());
+        }
+        assertEquals(8.0, cpm.makespan(), 1e-9);
+    }
+
+    @Test
     void zeroDurationTasksAreAllowed() {
         Cpm cpm = new Cpm()
                 .addTask(new Task("milestone", 0))
@@ -93,6 +131,7 @@ class CpmTest {
                 Cpm cpm = new Cpm();
                 String expectedPath = null;
                 double expectedMakespan = 0.0;
+                Map<String, Double> expectedFloats = new LinkedHashMap<>();
                 for (String line : Files.readAllLines(file)) {
                     if (line.isBlank() || line.startsWith("#")) {
                         continue;
@@ -103,11 +142,18 @@ class CpmTest {
                         case "edge" -> cpm.addDependency(new Edge(parts[1], parts[2]));
                         case "expect_path" -> expectedPath = parts[1];
                         case "expect_makespan" -> expectedMakespan = Double.parseDouble(parts[1]);
+                        case "expect_float" -> expectedFloats.put(parts[1], Double.parseDouble(parts[2]));
                         default -> throw new IllegalStateException("bad fixture line: " + line);
                     }
                 }
                 assertEquals(expectedMakespan, cpm.makespan(), 1e-9, file.toString());
                 assertEquals(expectedPath, String.join(",", cpm.criticalPath()), file.toString());
+                Map<String, Double> floats = new LinkedHashMap<>();
+                for (TaskTimes row : cpm.schedule()) {
+                    floats.put(row.name(), row.totalFloat());
+                }
+                expectedFloats.forEach((name, value) ->
+                        assertEquals(value, floats.get(name), 1e-9, file.toString() + ": " + name));
             }
         }
     }

@@ -100,6 +100,66 @@ public final class Cpm {
         return earliestFinish().values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
     }
 
+    /**
+     * Full schedule in insertion order: early and late start/finish per task,
+     * from the forward and backward passes.
+     */
+    public List<TaskTimes> schedule() {
+        Map<String, Double> finish = earliestFinish();
+        double makespan = 0.0;
+        for (double value : finish.values()) {
+            makespan = Math.max(makespan, value);
+        }
+
+        // Backward pass: reverse Kahn over out-degree so every successor of a
+        // task carries a late start before the task itself is processed.
+        Map<String, Integer> outdegree = new HashMap<>();
+        for (String name : tasks.keySet()) {
+            outdegree.put(name, successors.get(name).size());
+        }
+        Map<String, Double> lateStart = new HashMap<>();
+        Deque<String> ready = new ArrayDeque<>();
+        for (String name : outdegree.keySet()) {
+            if (outdegree.get(name) == 0) {
+                ready.add(name);
+            }
+        }
+        while (!ready.isEmpty()) {
+            String current = ready.poll();
+            double lateFinish = makespan;
+            for (String next : successors.get(current)) {
+                lateFinish = Math.min(lateFinish, lateStart.get(next));
+            }
+            lateStart.put(current, lateFinish - tasks.get(current).duration());
+            for (Edge edge : edges) {
+                if (edge.after().equals(current) && outdegree.merge(edge.before(), -1, Integer::sum) == 0) {
+                    ready.add(edge.before());
+                }
+            }
+        }
+
+        List<TaskTimes> rows = new ArrayList<>();
+        for (Task task : tasks.values()) {
+            double earlyFinish = finish.get(task.name());
+            double earlyStart = earlyFinish - task.duration();
+            double ls = lateStart.get(task.name());
+            rows.add(new TaskTimes(task.name(), earlyStart, earlyFinish,
+                    ls, ls + task.duration(), ls - earlyStart));
+        }
+        return rows;
+    }
+
+    /** Names of zero-float tasks, in insertion order. */
+    public List<String> criticalTasks() {
+        List<String> names = new ArrayList<>();
+        for (TaskTimes row : schedule()) {
+            if (row.isCritical()) {
+                names.add(row.name());
+            }
+        }
+        return names;
+    }
+
     private String dominatingPredecessor(String name, Map<String, Double> finish) {
         String best = null;
         double bestFinish = -1.0;

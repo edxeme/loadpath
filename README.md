@@ -20,6 +20,9 @@ easy, hard, and loud.
 4. A reverse-Kahn backward pass yields `late_start`/`late_finish` and the
    total float per task; `schedule()` reports all of it, `critical_tasks()`
    collects the zero-float set.
+5. Tied branches mean more than one critical path: `critical_paths()` walks
+   the zero-float subgraph through *binding* edges — edges whose predecessor
+   finish equals the successor start, so no float can ever open between them.
 
 Cycles are rejected. Results are stable: task and edge insertion order breaks
 ties identically in every port.
@@ -55,6 +58,22 @@ Adding a case means adding one file; all three suites pick it up on the next
 run. This caught real drift twice during development — a mutation bug in the
 Java topological walk and a working-directory assumption in the C++ runner.
 
+## Diagram export
+
+Every port renders the same Mermaid flowchart: heavy arrows on binding
+critical edges, labels carrying the duration. Feed `toMermaid()` /
+`to_mermaid()` output straight into any Mermaid renderer:
+
+```mermaid
+graph LR
+    a["a (2)"] --> short["short (3)"]
+    a["a (2)"] ==> long["long (7)"]
+    short["short (3)"] --> z["z (1)"]
+    long["long (7)"] ==> z["z (1)"]
+```
+
+Golden tests pin the exact rendering in all three ports, indentation included.
+
 ## Implementation notes
 
 - **Java** leans on records and a fluent builder; the shortest of the three in
@@ -65,14 +84,14 @@ Java topological walk and a working-directory assumption in the C++ runner.
   harness instead of a framework — for this size, the harness is the honest
   choice.
 
-~1370 lines across the three ports, no third-party dependencies beyond the
+~1930 lines across the three ports, no third-party dependencies beyond the
 Java test scope.
 
 ## Roadmap
 
 - [x] Late start/finish and total float per task
-- [ ] Multiple critical paths
-- [ ] Mermaid export of the schedule graph
+- [x] Multiple critical paths
+- [x] Mermaid export of the schedule graph
 
 ## License
 

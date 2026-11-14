@@ -257,6 +257,134 @@ impl Cpm {
             .collect())
     }
 
+    /// Every critical path from a zero-float task with no critical
+    /// predecessors, through binding critical edges (earliest finish of the
+    /// predecessor equals earliest start of the successor).
+    pub fn critical_paths(&self) -> Result<Vec<Vec<String>>, CpmError> {
+        let schedule = self.schedule()?;
+        let finish = self.earliest_finish()?;
+
+        let critical: std::collections::HashSet<String> = schedule
+            .iter()
+            .filter(|row| row.is_critical())
+            .map(|row| row.name.clone())
+            .collect();
+
+        let mut has_critical_predecessor: std::collections::HashSet<&str> =
+            std::collections::HashSet::new();
+        for edge in &self.edges {
+            if critical.contains(edge.before.as_str())
+                && critical.contains(edge.after.as_str())
+                && self.is_binding_edge(edge, &finish)
+            {
+                has_critical_predecessor.insert(edge.after.as_str());
+            }
+        }
+
+        let mut paths = Vec::new();
+        let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut path = Vec::new();
+        for name in &self.order {
+            if critical.contains(name.as_str()) && !has_critical_predecessor.contains(name.as_str())
+            {
+                visited.insert(name.as_str());
+                path.push(name.clone());
+                self.extend_from(
+                    name.as_str(),
+                    &critical,
+                    &finish,
+                    &mut visited,
+                    &mut path,
+                    &mut paths,
+                );
+                path.pop();
+                visited.remove(name.as_str());
+            }
+        }
+        Ok(paths)
+    }
+
+    /// Recursive DFS over binding critical edges: `path` and `visited` grow
+    /// in place, and each leaf state is cloned into `paths`.
+    fn extend_from<'a>(
+        &'a self,
+        current: &str,
+        critical: &std::collections::HashSet<String>,
+        finish: &HashMap<String, f64>,
+        visited: &mut std::collections::HashSet<&'a str>,
+        path: &mut Vec<String>,
+        paths: &mut Vec<Vec<String>>,
+    ) {
+        let mut extended = false;
+        for edge in &self.edges {
+            if edge.before == current
+                && critical.contains(edge.after.as_str())
+                && !visited.contains(edge.after.as_str())
+                && self.is_binding_edge(edge, finish)
+            {
+                visited.insert(edge.after.as_str());
+                path.push(edge.after.clone());
+                self.extend_from(edge.after.as_str(), critical, finish, visited, path, paths);
+                path.pop();
+                visited.remove(edge.after.as_str());
+                extended = true;
+            }
+        }
+        if !extended {
+            paths.push(path.clone());
+        }
+    }
+
+    /// Mermaid flowchart of the schedule: heavy arrows on binding critical
+    /// edges, plain arrows everywhere else.
+    pub fn to_mermaid(&self) -> Result<String, CpmError> {
+        let schedule = self.schedule()?;
+        let finish = self.earliest_finish()?;
+        let is_critical: std::collections::HashSet<String> = schedule
+            .iter()
+            .filter(|row| row.is_critical())
+            .map(|row| row.name.clone())
+            .collect();
+
+        let label = |name: &str| {
+            format!(
+                "{}[\"{} ({})\"]",
+                name,
+                name,
+                fmt_number(self.durations[name])
+            )
+        };
+
+        let mut out = String::from("graph LR\n");
+        let mut emitted: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
+        for edge in &self.edges {
+            if !emitted.insert((edge.before.as_str(), edge.after.as_str())) {
+                continue;
+            }
+            let critical_and_binding = is_critical.contains(edge.before.as_str())
+                && is_critical.contains(edge.after.as_str())
+                && self.is_binding_edge(edge, &finish);
+            let arrow = if critical_and_binding {
+                " ==> "
+            } else {
+                " --> "
+            };
+            out.push_str("    ");
+            out.push_str(&label(&edge.before));
+            out.push_str(arrow);
+            out.push_str(&label(&edge.after));
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
+    /// An edge binds two critical tasks when the predecessor's earliest
+    /// finish equals the successor's earliest start.
+    fn is_binding_edge(&self, edge: &Edge, finish: &HashMap<String, f64>) -> bool {
+        let succ_early_start = finish[&edge.after] - self.durations[&edge.after];
+        (finish[&edge.before] - succ_early_start).abs() <= 1e-9
+    }
+
     /// The predecessor with the largest earliest finish, if any.
     fn dominating_predecessor<'a>(
         &'a self,
@@ -272,6 +400,15 @@ impl Cpm {
             }
         }
         best
+    }
+}
+
+/// Renders integral values without a decimal point.
+fn fmt_number(value: f64) -> String {
+    if value == value.trunc() {
+        format!("{}", value as i64)
+    } else {
+        format!("{}", value)
     }
 }
 
@@ -348,6 +485,39 @@ mod tests {
             assert!(row.total_float.abs() < 1e-9, "{}", row.name);
         }
         assert!((cpm.makespan().unwrap() - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tied_branches_produce_two_critical_paths() {
+        let mut cpm = Cpm::new();
+        cpm.add_task("a", 2.0).unwrap();
+        cpm.add_task("p", 3.0).unwrap();
+        cpm.add_task("q", 3.0).unwrap();
+        cpm.add_task("z", 1.0).unwrap();
+        cpm.add_dependency("a", "p").unwrap();
+        cpm.add_dependency("a", "q").unwrap();
+        cpm.add_dependency("p", "z").unwrap();
+        cpm.add_dependency("q", "z").unwrap();
+
+        assert!((cpm.makespan().unwrap() - 6.0).abs() < 1e-9);
+        assert_eq!(
+            cpm.critical_paths().unwrap(),
+            vec![vec!["a", "p", "z"], vec!["a", "q", "z"]]
+        );
+        assert_eq!(cpm.critical_tasks().unwrap(), vec!["a", "p", "q", "z"]);
+    }
+
+    #[test]
+    fn slack_branches_are_not_critical_paths() {
+        let cpm = sample();
+        assert_eq!(cpm.critical_paths().unwrap(), vec![vec!["a", "long", "z"]]);
+    }
+
+    #[test]
+    fn mermaid_marks_binding_critical_edges_as_heavy() {
+        let cpm = sample();
+        let expected = "graph LR\n    a[\"a (2)\"] --> short[\"short (3)\"]\n    a[\"a (2)\"] ==> long[\"long (7)\"]\n    short[\"short (3)\"] --> z[\"z (1)\"]\n    long[\"long (7)\"] ==> z[\"z (1)\"]\n";
+        assert_eq!(cpm.to_mermaid().unwrap(), expected);
     }
 
     #[test]

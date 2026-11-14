@@ -27,6 +27,8 @@ fn shared_fixtures_stay_consistent() {
         let mut expected_path = String::new();
         let mut expected_makespan = 0.0;
         let mut expected_floats: HashMap<String, f64> = HashMap::new();
+        let mut expected_paths: std::collections::HashSet<Vec<String>> =
+            std::collections::HashSet::new();
 
         for line in text
             .lines()
@@ -45,6 +47,9 @@ fn shared_fixtures_stay_consistent() {
                 "expect_float" => {
                     expected_floats.insert(parts[1].to_string(), parts[2].parse().unwrap());
                 }
+                "expect_paths" => {
+                    expected_paths.insert(parts[1].split(',').map(String::from).collect());
+                }
                 other => panic!("bad fixture line in {:?}: {other}", file),
             }
         }
@@ -59,6 +64,11 @@ fn shared_fixtures_stay_consistent() {
                 (floats[name.as_str()] - value).abs() < 1e-9,
                 "{file:?}: {name}"
             );
+        }
+        if !expected_paths.is_empty() {
+            let got: std::collections::HashSet<Vec<String>> =
+                cpm.critical_paths().unwrap().into_iter().collect();
+            assert_eq!(got, expected_paths, "{file:?}");
         }
 
         assert!(

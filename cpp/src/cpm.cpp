@@ -1,6 +1,7 @@
 #include <loadpath/cpm.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <deque>
 #include <sstream>
 

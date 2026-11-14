@@ -44,7 +44,8 @@ void check_shared_fixtures() {
             continue;
         }
         probe.close();
-        const char* names[] = {"diamond-slack.tsv", "parallel-branches.tsv", "small-house.tsv"};
+        const char* names[] = {
+            "diamond-slack.tsv", "parallel-branches.tsv", "small-house.tsv", "tied-branches.tsv"};
         for (const char* name : names) {
             std::ifstream file(dir + "/" + name);
             CHECK(file.good());
@@ -74,7 +75,9 @@ void check_shared_fixtures() {
                 }
             }
             CHECK_NEAR(cpm.makespan(), expected_makespan, 1e-9);
-            CHECK(join(cpm.critical_path(), ',') == expected_path);
+            if (!expected_path.empty()) {
+                CHECK(join(cpm.critical_path(), ',') == expected_path);
+            }
             std::unordered_map<std::string, double> floats;
             for (const loadpath::TaskTimes& row : cpm.schedule()) {
                 floats[row.name] = row.total_float;

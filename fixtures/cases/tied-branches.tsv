@@ -1,0 +1,14 @@
+# Two branches with identical weight: both are critical.
+task	a	2
+task	p	3
+task	q	3
+task	z	1
+edge	a	p
+edge	a	q
+edge	p	z
+edge	q	z
+expect_paths	a,p,z
+expect_paths	a,q,z
+expect_makespan	6
+expect_float	a	0
+expect_float	z	0

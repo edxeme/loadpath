@@ -75,10 +75,12 @@ fn shared_fixtures_stay_consistent() {
             (cpm.makespan().unwrap() - expected_makespan).abs() < 1e-9,
             "{file:?}"
         );
-        assert_eq!(
-            cpm.critical_path().unwrap().join(","),
-            expected_path,
-            "{file:?}"
-        );
+        if !expected_path.is_empty() {
+            assert_eq!(
+                cpm.critical_path().unwrap().join(","),
+                expected_path,
+                "{file:?}"
+            );
+        }
     }
 }

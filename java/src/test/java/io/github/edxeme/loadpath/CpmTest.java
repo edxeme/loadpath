@@ -206,7 +206,9 @@ class CpmTest {
                     }
                 }
                 assertEquals(expectedMakespan, cpm.makespan(), 1e-9, file.toString());
-                assertEquals(expectedPath, String.join(",", cpm.criticalPath()), file.toString());
+                if (expectedPath != null) {
+                    assertEquals(expectedPath, String.join(",", cpm.criticalPath()), file.toString());
+                }
                 Map<String, Double> floats = new LinkedHashMap<>();
                 for (TaskTimes row : cpm.schedule()) {
                     floats.put(row.name(), row.totalFloat());

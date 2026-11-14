@@ -5,8 +5,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Critical-path analysis over a weighted task DAG.
@@ -158,6 +160,111 @@ public final class Cpm {
             }
         }
         return names;
+    }
+
+    /**
+     * Every critical path from a zero-float task with no critical
+     * predecessors to a zero-float task with no critical successors.
+     * An edge binds two critical tasks when it is the only way to keep
+     * them edge-to-edge on a schedule, i.e. the predecessor's earliest
+     * finish equals the successor's earliest start.
+     */
+    public List<List<String>> criticalPaths() {
+        Map<String, TaskTimes> times = new LinkedHashMap<>();
+        for (TaskTimes row : schedule()) {
+            times.put(row.name(), row);
+        }
+
+        Set<String> critical = new LinkedHashSet<>();
+        for (TaskTimes row : times.values()) {
+            if (row.isCritical()) {
+                critical.add(row.name());
+            }
+        }
+
+        Set<String> hasCriticalPredecessor = new LinkedHashSet<>();
+        for (Edge edge : edges) {
+            if (critical.contains(edge.before()) && critical.contains(edge.after())
+                    && isBinding(edge, times)) {
+                hasCriticalPredecessor.add(edge.after());
+            }
+        }
+
+        List<List<String>> paths = new ArrayList<>();
+        for (String name : critical) {
+            if (!hasCriticalPredecessor.contains(name)) {
+                extendPath(name, critical, times, new LinkedHashSet<>(List.of(name)),
+                        new ArrayList<>(List.of(name)), paths);
+            }
+        }
+        return paths;
+    }
+
+    private void extendPath(String current, Set<String> critical, Map<String, TaskTimes> times,
+                            Set<String> visited, List<String> path, List<List<String>> paths) {
+        boolean extended = false;
+        for (Edge edge : edges) {
+            if (edge.before().equals(current) && critical.contains(edge.after())
+                    && !visited.contains(edge.after()) && isBinding(edge, times)) {
+                visited.add(edge.after());
+                path.add(edge.after());
+                extendPath(edge.after(), critical, times, visited, path, paths);
+                path.remove(path.size() - 1);
+                visited.remove(edge.after());
+                extended = true;
+            }
+        }
+        if (!extended) {
+            paths.add(new ArrayList<>(path));
+        }
+    }
+
+    private boolean isBinding(Edge edge, Map<String, TaskTimes> times) {
+        double succEarlyStart = times.get(edge.after()).earlyFinish()
+                - tasks.get(edge.after()).duration();
+        return Math.abs(times.get(edge.before()).earlyFinish() - succEarlyStart) <= 1e-9;
+    }
+
+    /**
+     * Mermaid flowchart of the schedule: heavy arrows on binding critical
+     * edges, plain arrows everywhere else.
+     */
+    public String toMermaid() {
+        Map<String, TaskTimes> times = new LinkedHashMap<>();
+        Set<String> critical = new LinkedHashSet<>();
+        for (TaskTimes row : schedule()) {
+            times.put(row.name(), row);
+            if (row.isCritical()) {
+                critical.add(row.name());
+            }
+        }
+        StringBuilder out = new StringBuilder("graph LR\n");
+        Set<String> emitted = new LinkedHashSet<>();
+        for (Edge edge : edges) {
+            String key = edge.before() + " -> " + edge.after();
+            if (!emitted.add(key)) {
+                continue;
+            }
+            String arrow = critical.contains(edge.before()) && critical.contains(edge.after())
+                    && isBinding(edge, times) ? " ==> " : " --> ";
+            out.append("    ").append(edge.before())
+                    .append("[\"").append(edge.before())
+                    .append(" (").append(trim(tasks.get(edge.before()).duration()))
+                    .append(")\"]")
+                    .append(arrow)
+                    .append(edge.after())
+                    .append("[\"").append(edge.after())
+                    .append(" (").append(trim(tasks.get(edge.after()).duration()))
+                    .append(")\"]")
+                    .append('\n');
+        }
+        return out.toString();
+    }
+
+    private static String trim(double value) {
+        return value == Math.rint(value)
+                ? String.valueOf((long) value)
+                : String.valueOf(value);
     }
 
     private String dominatingPredecessor(String name, Map<String, Double> finish) {

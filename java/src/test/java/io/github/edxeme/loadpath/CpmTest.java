@@ -5,8 +5,10 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -111,6 +113,60 @@ class CpmTest {
     }
 
     @Test
+    void tiedBranchesProduceTwoCriticalPaths() {
+        Cpm cpm = new Cpm()
+                .addTask(new Task("a", 2))
+                .addTask(new Task("p", 3))
+                .addTask(new Task("q", 3))
+                .addTask(new Task("z", 1))
+                .addDependency(new Edge("a", "p"))
+                .addDependency(new Edge("a", "q"))
+                .addDependency(new Edge("p", "z"))
+                .addDependency(new Edge("q", "z"));
+
+        assertEquals(6.0, cpm.makespan(), 1e-9);
+        assertEquals(List.of(List.of("a", "p", "z"), List.of("a", "q", "z")), cpm.criticalPaths());
+        assertEquals(List.of("a", "p", "q", "z"), cpm.criticalTasks());
+    }
+
+    @Test
+    void slackBranchesAreNotCriticalPaths() {
+        Cpm cpm = new Cpm()
+                .addTask(new Task("a", 2))
+                .addTask(new Task("short", 3))
+                .addTask(new Task("long", 7))
+                .addTask(new Task("z", 1))
+                .addDependency(new Edge("a", "short"))
+                .addDependency(new Edge("a", "long"))
+                .addDependency(new Edge("short", "z"))
+                .addDependency(new Edge("long", "z"));
+
+        assertEquals(List.of(List.of("a", "long", "z")), cpm.criticalPaths());
+    }
+
+    @Test
+    void mermaidMarksBindingCriticalEdgesAsHeavy() {
+        Cpm cpm = new Cpm()
+                .addTask(new Task("a", 2))
+                .addTask(new Task("short", 3))
+                .addTask(new Task("long", 7))
+                .addTask(new Task("z", 1))
+                .addDependency(new Edge("a", "short"))
+                .addDependency(new Edge("a", "long"))
+                .addDependency(new Edge("short", "z"))
+                .addDependency(new Edge("long", "z"));
+
+        String expected = """
+                graph LR
+                    a["a (2)"] --> short["short (3)"]
+                    a["a (2)"] ==> long["long (7)"]
+                    short["short (3)"] --> z["z (1)"]
+                    long["long (7)"] ==> z["z (1)"]
+                """;
+        assertEquals(expected, cpm.toMermaid());
+    }
+
+    @Test
     void cycleIsRejected() {
         Cpm cpm = new Cpm()
                 .addTask(new Task("a", 1))
@@ -132,6 +188,7 @@ class CpmTest {
                 String expectedPath = null;
                 double expectedMakespan = 0.0;
                 Map<String, Double> expectedFloats = new LinkedHashMap<>();
+                Set<List<String>> expectedPaths = new LinkedHashSet<>();
                 for (String line : Files.readAllLines(file)) {
                     if (line.isBlank() || line.startsWith("#")) {
                         continue;
@@ -143,6 +200,8 @@ class CpmTest {
                         case "expect_path" -> expectedPath = parts[1];
                         case "expect_makespan" -> expectedMakespan = Double.parseDouble(parts[1]);
                         case "expect_float" -> expectedFloats.put(parts[1], Double.parseDouble(parts[2]));
+                        case "expect_paths" -> expectedPaths.add(
+                                List.of(parts[1].split(",")));
                         default -> throw new IllegalStateException("bad fixture line: " + line);
                     }
                 }
@@ -154,6 +213,10 @@ class CpmTest {
                 }
                 expectedFloats.forEach((name, value) ->
                         assertEquals(value, floats.get(name), 1e-9, file.toString() + ": " + name));
+                if (!expectedPaths.isEmpty()) {
+                    assertEquals(expectedPaths, new LinkedHashSet<>(cpm.criticalPaths()),
+                            file.toString());
+                }
             }
         }
     }

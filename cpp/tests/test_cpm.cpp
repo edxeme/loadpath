@@ -137,6 +137,65 @@ TEST(diamond_slack_is_not_critical) {
     CHECK(join(cpm.critical_path(), ',') == "s,heavy");
 }
 
+TEST(tied_branches_produce_two_critical_paths) {
+    Cpm cpm;
+    cpm.add_task("a", 2)
+        .add_task("p", 3)
+        .add_task("q", 3)
+        .add_task("z", 1)
+        .add_dependency("a", "p")
+        .add_dependency("a", "q")
+        .add_dependency("p", "z")
+        .add_dependency("q", "z");
+
+    CHECK_NEAR(cpm.makespan(), 6.0, 1e-9);
+    const auto paths = cpm.critical_paths();
+    CHECK(paths.size() == 2);
+    if (paths.size() == 2) {
+        CHECK(join(paths[0], ',') == "a,p,z");
+        CHECK(join(paths[1], ',') == "a,q,z");
+    }
+    CHECK(join(cpm.critical_tasks(), ',') == "a,p,q,z");
+}
+
+TEST(slack_branches_are_not_critical_paths) {
+    Cpm cpm;
+    cpm.add_task("a", 2)
+        .add_task("short", 3)
+        .add_task("long", 7)
+        .add_task("z", 1)
+        .add_dependency("a", "short")
+        .add_dependency("a", "long")
+        .add_dependency("short", "z")
+        .add_dependency("long", "z");
+
+    const auto paths = cpm.critical_paths();
+    CHECK(paths.size() == 1);
+    if (paths.size() == 1) {
+        CHECK(join(paths[0], ',') == "a,long,z");
+    }
+}
+
+TEST(mermaid_marks_binding_critical_edges_as_heavy) {
+    Cpm cpm;
+    cpm.add_task("a", 2)
+        .add_task("short", 3)
+        .add_task("long", 7)
+        .add_task("z", 1)
+        .add_dependency("a", "short")
+        .add_dependency("a", "long")
+        .add_dependency("short", "z")
+        .add_dependency("long", "z");
+
+    const std::string expected =
+        "graph LR\n"
+        "    a[\"a (2)\"] --> short[\"short (3)\"]\n"
+        "    a[\"a (2)\"] ==> long[\"long (7)\"]\n"
+        "    short[\"short (3)\"] --> z[\"z (1)\"]\n"
+        "    long[\"long (7)\"] ==> z[\"z (1)\"]\n";
+    CHECK(cpm.to_mermaid() == expected);
+}
+
 TEST(cycle_is_rejected) {
     Cpm cpm;
     cpm.add_task("a", 1)

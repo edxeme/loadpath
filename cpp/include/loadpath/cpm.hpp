@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace loadpath {
@@ -71,12 +72,33 @@ public:
     /// Names of zero-float tasks, in insertion order.
     [[nodiscard]] std::vector<std::string> critical_tasks() const;
 
+    /// Every critical path from a zero-float task with no critical
+    /// predecessors, through binding critical edges.
+    [[nodiscard]] std::vector<std::vector<std::string>> critical_paths() const;
+
+    /// Mermaid flowchart: heavy arrows on binding critical edges.
+    [[nodiscard]] std::string to_mermaid() const;
+
     [[nodiscard]] std::size_t task_count() const { return tasks_.size(); }
 
 private:
+    using FinishMap = std::unordered_map<std::string, double>;
+
     [[nodiscard]] const std::string* dominating_predecessor(
         const std::string& name,
-        const std::unordered_map<std::string, double>& finish) const;
+        const FinishMap& finish) const;
+
+    /// True when the predecessor's earliest finish equals the successor's
+    /// earliest start, i.e. the edge pins the successor's start time.
+    [[nodiscard]] bool is_binding_edge(const Edge& edge, const FinishMap& finish) const;
+
+    void extend_from(
+        const std::string& current,
+        const std::unordered_set<std::string>& critical,
+        const FinishMap& finish,
+        std::unordered_set<std::string>& visited,
+        std::vector<std::string>& path,
+        std::vector<std::vector<std::string>>& paths) const;
 
     std::vector<Task> tasks_;
     std::vector<Edge> edges_;

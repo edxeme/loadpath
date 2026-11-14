@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <sstream>
 
 namespace loadpath {
 
@@ -168,6 +169,124 @@ std::vector<std::string> Cpm::critical_tasks() const {
         }
     }
     return names;
+}
+
+std::vector<std::vector<std::string>> Cpm::critical_paths() const {
+    const std::vector<TaskTimes> rows = schedule();
+    const FinishMap finish = earliest_finish();
+
+    std::unordered_set<std::string> critical;
+    for (const TaskTimes& row : rows) {
+        if (row.is_critical()) {
+            critical.insert(row.name);
+        }
+    }
+
+    std::unordered_set<std::string> has_critical_predecessor;
+    for (const Edge& edge : edges_) {
+        if (critical.count(edge.before) != 0 && critical.count(edge.after) != 0
+            && is_binding_edge(edge, finish)) {
+            has_critical_predecessor.insert(edge.after);
+        }
+    }
+
+    std::vector<std::vector<std::string>> paths;
+    std::unordered_set<std::string> visited;
+    std::vector<std::string> path;
+    for (const Task& task : tasks_) {
+        if (critical.count(task.name) != 0
+            && has_critical_predecessor.count(task.name) == 0) {
+            visited.insert(task.name);
+            path.push_back(task.name);
+            extend_from(task.name, critical, finish, visited, path, paths);
+            path.pop_back();
+            visited.erase(task.name);
+        }
+    }
+    return paths;
+}
+
+void Cpm::extend_from(
+    const std::string& current,
+    const std::unordered_set<std::string>& critical,
+    const FinishMap& finish,
+    std::unordered_set<std::string>& visited,
+    std::vector<std::string>& path,
+    std::vector<std::vector<std::string>>& paths) const {
+    bool extended = false;
+    for (const Edge& edge : edges_) {
+        if (edge.before == current && critical.count(edge.after) != 0
+            && visited.count(edge.after) == 0 && is_binding_edge(edge, finish)) {
+            visited.insert(edge.after);
+            path.push_back(edge.after);
+            extend_from(edge.after, critical, finish, visited, path, paths);
+            path.pop_back();
+            visited.erase(edge.after);
+            extended = true;
+        }
+    }
+    if (!extended) {
+        paths.push_back(path);
+    }
+}
+
+bool Cpm::is_binding_edge(const Edge& edge, const FinishMap& finish) const {
+    const double succ_early_start =
+        finish.at(edge.after) - tasks_.at(index_.at(edge.after)).duration;
+    return std::fabs(finish.at(edge.before) - succ_early_start) <= 1e-9;
+}
+
+namespace {
+
+std::string fmt_number(double value) {
+    std::ostringstream out;
+    if (value == static_cast<double>(static_cast<long long>(value))) {
+        out << static_cast<long long>(value);
+    } else {
+        out << value;
+    }
+    return out.str();
+}
+
+}  // namespace
+
+std::string Cpm::to_mermaid() const {
+    const std::vector<TaskTimes> rows = schedule();
+    const FinishMap finish = earliest_finish();
+    std::unordered_set<std::string> critical;
+    for (const TaskTimes& row : rows) {
+        if (row.is_critical()) {
+            critical.insert(row.name);
+        }
+    }
+
+    std::string out = "graph LR\n";
+    std::unordered_set<std::string> emitted;
+    for (const Edge& edge : edges_) {
+        const std::string key = edge.before + " -> " + edge.after;
+        if (!emitted.insert(key).second) {
+            continue;
+        }
+        const bool heavy = critical.count(edge.before) != 0
+            && critical.count(edge.after) != 0 && is_binding_edge(edge, finish);
+        const std::string arrow = heavy ? " ==> " : " --> ";
+        out += "    ";
+        out += edge.before;
+        out += "[\"";
+        out += edge.before;
+        out += " (";
+        out += fmt_number(tasks_.at(index_.at(edge.before)).duration);
+        out += ")\"]";
+        out += arrow;
+        out += edge.after;
+        out += "[\"";
+        out += edge.after;
+        out += " (";
+        out += fmt_number(tasks_.at(index_.at(edge.after)).duration);
+        out += ")\"]";
+        out += '\n';
+    }
+    return out;
 }
 
 const std::string* Cpm::dominating_predecessor(
